@@ -1,5 +1,11 @@
 # Change Log
 
+## Next
+
+### Validation
+
+- **Validation for `include`/`exclude` column names in bulk selects** — typos in `dims_from_model`, `fcts_from_model`, `all_from_model`, and `all_from_source` now surface as Problems-tab warnings. The validator checks that each column name exists in the referenced upstream model or source manifest; for `dims_from_model` and `fcts_from_model`, it also verifies that the column has the correct type (dim vs fct).
+
 ## 1.5.0
 
 ### Lightdash

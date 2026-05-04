@@ -25,6 +25,7 @@ import {
   validateDjIcebergPartitionOverwrite,
   validateMainModelAggregation,
   validateMaterializationPartitionsExist,
+  validateModelColumnReferences,
   validatePartitionStrategyWithoutPartitions,
 } from '@services/modelValidation';
 import { jsonParse } from '@shared';
@@ -182,6 +183,19 @@ export class ModelProcessor {
             validationWarnings.push({ message: msg, instancePath: '' });
           }
         }
+      }
+
+      // Validate exclude/include column references against the manifest for
+      // *_from_model and *_from_source bulk directives
+      const modelColRefErrors = validateModelColumnReferences(
+        modelJson,
+        project,
+      );
+      if (modelColRefErrors.length > 0) {
+        for (const err of modelColRefErrors) {
+          this.config.logger.warn?.(`${modelName}: ${err.message}`);
+        }
+        validationWarnings.push(...modelColRefErrors);
       }
 
       // Dead outer-layer warning: main select is a single passthrough of a

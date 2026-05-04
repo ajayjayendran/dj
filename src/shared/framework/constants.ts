@@ -44,6 +44,10 @@ export const BULK_MODEL_TYPES = new Set<string>([
   BULK_SELECT_TYPES.FCTS_FROM_MODEL,
 ]);
 
+export const BULK_SOURCE_TYPES = new Set<string>([
+  BULK_SELECT_TYPES.ALL_FROM_SOURCE,
+]);
+
 /** Types that select only dimension columns (meta.type !== 'fct') */
 export const DIMS_BULK_TYPES = new Set<string>([
   BULK_SELECT_TYPES.DIMS_FROM_CTE,

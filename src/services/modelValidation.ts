@@ -1,12 +1,16 @@
 import {
   filterBulkSelectColumns,
+  frameworkGetNodeColumns,
   isAggregateExpr,
   isConstantExpr,
   isJinjaExpr,
   isWindowFunctionExpr,
 } from '@services/framework/utils/column-utils';
+import type { DbtProject } from '@shared/dbt/types';
 import {
   BULK_CTE_TYPES,
+  BULK_MODEL_TYPES,
+  BULK_SOURCE_TYPES,
   DEFAULT_INCREMENTAL_STRATEGY,
 } from '@shared/framework/constants';
 import type { FrameworkColumn } from '@shared/framework/types';
@@ -714,6 +718,139 @@ export function validateCteColumnReferences(
       );
       checkBulkDirective(sel, `select[${j}]`, availableColumns);
     }
+  }
+
+  return errors;
+}
+
+/**
+ * Validates that exclude/include column names in bulk model/source directives
+ * actually exist in the referenced upstream node.
+ */
+export function validateModelColumnReferences(
+  modelJson: any,
+  project: DbtProject,
+): ValidationErrorDetail[] {
+  const errors: ValidationErrorDetail[] = [];
+  if (!project?.manifest) {
+    return errors;
+  }
+
+  function checkBulkDirective(
+    sel: any,
+    path: string,
+    nodeType: 'model' | 'source',
+    nodeName: string,
+  ): void {
+    const from =
+      nodeType === 'model' ? { model: nodeName } : { source: nodeName };
+
+    const {
+      columns: allColumns,
+      dimensions,
+      facts,
+    } = frameworkGetNodeColumns({
+      from,
+      project,
+      useCsvFallback: true,
+    });
+
+    if (allColumns.length === 0) {
+      return;
+    }
+
+    let availableColumns: string[];
+    let typeLabel: string;
+
+    if (sel.type === 'dims_from_model') {
+      availableColumns = dimensions.map((c) => c.name);
+      typeLabel = 'dimension';
+    } else if (sel.type === 'fcts_from_model') {
+      availableColumns = facts.map((c) => c.name);
+      typeLabel = 'fact';
+    } else {
+      availableColumns = allColumns.map((c) => c.name);
+      typeLabel = '';
+    }
+
+    const allColumnNames = allColumns.map((c) => c.name);
+
+    if (sel.exclude && Array.isArray(sel.exclude)) {
+      for (const colName of sel.exclude) {
+        if (!allColumnNames.includes(colName)) {
+          errors.push({
+            message: `${path}: exclude references column "${colName}" which does not exist in ${nodeType} "${nodeName}". Available columns: ${allColumnNames.join(', ')}`,
+            instancePath: `/${path.replace(/\./g, '/').replace(/\[/g, '/').replace(/\]/g, '')}/exclude`,
+          });
+        }
+      }
+    }
+
+    if (sel.include && Array.isArray(sel.include)) {
+      for (const colName of sel.include) {
+        if (!availableColumns.includes(colName)) {
+          if (allColumnNames.includes(colName) && typeLabel) {
+            errors.push({
+              message: `${path}: include references column "${colName}" which exists in ${nodeType} "${nodeName}" but is not a ${typeLabel} column. Available ${typeLabel} columns: ${availableColumns.join(', ')}`,
+              instancePath: `/${path.replace(/\./g, '/').replace(/\[/g, '/').replace(/\]/g, '')}/include`,
+            });
+          } else {
+            errors.push({
+              message: `${path}: include references column "${colName}" which does not exist in ${nodeType} "${nodeName}". Available columns: ${availableColumns.join(', ')}`,
+              instancePath: `/${path.replace(/\./g, '/').replace(/\[/g, '/').replace(/\]/g, '')}/include`,
+            });
+          }
+        }
+      }
+    }
+
+    const effectiveExclude = Array.isArray(sel.exclude) ? sel.exclude : [];
+    const effectiveInclude = Array.isArray(sel.include) ? sel.include : [];
+    const remaining = availableColumns.filter((c) => {
+      if (effectiveExclude.length && effectiveExclude.includes(c)) {
+        return false;
+      }
+      if (effectiveInclude.length && !effectiveInclude.includes(c)) {
+        return false;
+      }
+      return true;
+    });
+
+    if (remaining.length === 0 && availableColumns.length > 0) {
+      errors.push({
+        message: `${path}: exclude/include combination results in zero columns from ${nodeType} "${nodeName}".`,
+        instancePath: `/${path.replace(/\./g, '/').replace(/\[/g, '/').replace(/\]/g, '')}`,
+      });
+    }
+  }
+
+  function processSelectArray(selectArray: any[], pathPrefix: string): void {
+    for (let j = 0; j < selectArray.length; j++) {
+      const sel = selectArray[j];
+      if (typeof sel !== 'object' || !sel) {
+        continue;
+      }
+
+      if ('model' in sel && BULK_MODEL_TYPES.has(sel.type)) {
+        checkBulkDirective(sel, `${pathPrefix}[${j}]`, 'model', sel.model);
+      } else if ('source' in sel && BULK_SOURCE_TYPES.has(sel.type)) {
+        checkBulkDirective(sel, `${pathPrefix}[${j}]`, 'source', sel.source);
+      }
+    }
+  }
+
+  if (Array.isArray(modelJson?.ctes)) {
+    for (let i = 0; i < modelJson.ctes.length; i++) {
+      const cte = modelJson.ctes[i];
+      if (!Array.isArray(cte.select)) {
+        continue;
+      }
+      processSelectArray(cte.select, `ctes[${i}] ("${cte.name}").select`);
+    }
+  }
+
+  if (Array.isArray(modelJson?.select)) {
+    processSelectArray(modelJson.select, 'select');
   }
 
   return errors;
