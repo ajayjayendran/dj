@@ -298,6 +298,16 @@ export const SelectNode: React.FC<NodeProps> = ({ data: _data }) => {
     void fetchInitialData();
   }, [fetchInitialData]);
 
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'model-deleted') {
+        void fetchInitialData();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [fetchInitialData]);
+
   const handleModelChange = useCallback(
     (option: AvailableModel | null) => {
       // Store the previous model/source and its selection type to preserve it

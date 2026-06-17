@@ -17,7 +17,7 @@ import { useDebounce } from '@web/hooks/useDebounce';
 import { useModelStore } from '@web/stores/useModelStore';
 import type { NodeProps } from '@xyflow/react';
 import { Handle, Position } from '@xyflow/react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const whereTypeOptions: RadioOption[] = [
   { label: 'Basic', value: 'basic' },
@@ -302,50 +302,61 @@ export const WhereClauseNode: React.FC<NodeProps> = () => {
     null,
   );
 
-  useEffect(() => {
-    const fetchProjectData = async () => {
-      try {
-        const projectsResponse = await api.post({
-          type: 'dbt-fetch-projects',
-          request: null,
-        });
-        const projects = projectsResponse || [];
-        if (projects.length === 0) return;
+  const fetchProjectData = useCallback(async () => {
+    try {
+      const projectsResponse = await api.post({
+        type: 'dbt-fetch-projects',
+        request: null,
+      });
+      const projects = projectsResponse || [];
+      if (projects.length === 0) return;
 
-        const project = projects[0];
-        if (project.manifest) {
-          setManifest(project.manifest as Record<string, unknown>);
-        }
-        if (project.manifest?.nodes) {
-          const modelNames = Object.keys(project.manifest.nodes)
-            .filter(
-              (key) =>
-                key.startsWith('model.') ||
-                key.startsWith('seed.') ||
-                key.startsWith('source.'),
-            )
-            .map((key: string) => project.manifest.nodes[key]?.name)
-            .filter((name: unknown): name is string => Boolean(name));
-          setSubqueryModels(modelNames);
-        }
-        if (project.manifest?.sources) {
-          const sourceNames = Object.keys(project.manifest.sources)
-            .filter((key: string) => key.startsWith('source.'))
-            .map((key: string) => {
-              const source = project.manifest.sources[key];
-              return source?.source_name && source?.name
-                ? `${source.source_name}.${source.name}`
-                : null;
-            })
-            .filter((name: unknown): name is string => Boolean(name));
-          setSubquerySources(sourceNames);
-        }
-      } catch {
-        // Silently fail - subquery dropdowns will fall back to text inputs
+      const project = projects[0];
+      if (project.manifest) {
+        setManifest(project.manifest as Record<string, unknown>);
+      }
+      if (project.manifest?.nodes) {
+        const modelNames = Object.keys(project.manifest.nodes)
+          .filter(
+            (key) =>
+              key.startsWith('model.') ||
+              key.startsWith('seed.') ||
+              key.startsWith('source.'),
+          )
+          .map((key: string) => project.manifest.nodes[key]?.name)
+          .filter((name: unknown): name is string => Boolean(name));
+        setSubqueryModels(modelNames);
+      }
+      if (project.manifest?.sources) {
+        const sourceNames = Object.keys(project.manifest.sources)
+          .filter((key: string) => key.startsWith('source.'))
+          .map((key: string) => {
+            const source = project.manifest.sources[key];
+            return source?.source_name && source?.name
+              ? `${source.source_name}.${source.name}`
+              : null;
+          })
+          .filter((name: unknown): name is string => Boolean(name));
+        setSubquerySources(sourceNames);
+      }
+    } catch {
+      // Silently fail - subquery dropdowns will fall back to text inputs
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void fetchProjectData();
+  }, [fetchProjectData]);
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'model-deleted') {
+        void fetchProjectData();
       }
     };
-    void fetchProjectData();
-  }, [api]);
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [fetchProjectData]);
 
   const subqueryModelOptions = useMemo(
     () => subqueryModels.map((m) => ({ label: m, value: m })),

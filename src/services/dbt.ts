@@ -1970,6 +1970,82 @@ ${macro.macro_sql}`;
   }
 
   /**
+   * Immediately removes deleted models from the in-memory manifest and model
+   * maps so that subsequent `dbt-fetch-projects` responses no longer include
+   * them. This prevents webview model pickers from showing stale entries while
+   * dbt parse catches up.
+   */
+  async pruneDeletedModels(
+    projectName: string,
+    modelNames: string[],
+  ): Promise<void> {
+    const project = this.projects.get(projectName);
+    if (!project?.manifest?.nodes) {
+      return;
+    }
+
+    const prunedNodes = { ...project.manifest.nodes };
+    let didPrune = false;
+
+    for (const name of modelNames) {
+      const modelNodeId = `model.${projectName}.${name}`;
+      const seedNodeId = `seed.${projectName}.${name}`;
+
+      if (modelNodeId in prunedNodes) {
+        delete prunedNodes[modelNodeId];
+        this.models.delete(modelNodeId);
+        this.state.modelTreeRoots.delete(name);
+        didPrune = true;
+        this.log.info(
+          `Pruned deleted model '${name}' from in-memory manifest`,
+        );
+      }
+      if (seedNodeId in prunedNodes) {
+        delete prunedNodes[seedNodeId];
+        this.seeds.delete(seedNodeId);
+        didPrune = true;
+        this.log.info(
+          `Pruned deleted seed '${name}' from in-memory manifest`,
+        );
+      }
+    }
+
+    if (didPrune) {
+      this.projects.set(projectName, {
+        ...project,
+        manifest: { ...project.manifest, nodes: prunedNodes },
+      });
+
+      // Update the JSON schema enum file so VS Code autocomplete
+      // stops suggesting the deleted model in .model.json files.
+      try {
+        const schemaPath = path.join(
+          DJ_SCHEMAS_PATH,
+          'model.ref.schema.json',
+        );
+        const schemaUri = vscode.Uri.file(schemaPath);
+        const schemaContent = jsonParse(
+          (await vscode.workspace.fs.readFile(schemaUri)).toString(),
+        ) as FrameworkSchemaBase;
+        if (Array.isArray(schemaContent.enum)) {
+          const deletedSet = new Set(modelNames);
+          schemaContent.enum = schemaContent.enum.filter(
+            (name: string) => !deletedSet.has(name),
+          );
+          await vscode.workspace.fs.writeFile(
+            schemaUri,
+            Buffer.from(JSON.stringify(schemaContent)),
+          );
+        }
+      } catch {
+        this.log.warn(
+          'Failed to update model.ref.schema.json after pruning',
+        );
+      }
+    }
+  }
+
+  /**
    * Fetches a project's manifest file from the system path
    */
   async fetchManifest({ project }: { project: DbtProject }) {

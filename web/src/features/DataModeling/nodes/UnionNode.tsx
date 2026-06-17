@@ -185,6 +185,16 @@ export const UnionNode: React.FC<NodeProps> = () => {
     void fetchInitialData();
   }, [fetchInitialData]);
 
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'model-deleted') {
+        void fetchInitialData();
+      }
+    };
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [fetchInitialData]);
+
   // Sync local state when modelingState changes (but only when coming from external sources)
   useEffect(() => {
     const storeItems = isUnionSource ? unionState.sources : unionState.models;

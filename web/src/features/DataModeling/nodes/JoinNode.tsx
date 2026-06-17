@@ -847,67 +847,77 @@ export const JoinNode: React.FC<NodeProps> = ({ data, id }) => {
   );
 
   // Initialize projects and models once
-  useEffect(() => {
-    const initializeData = async () => {
-      setModelsLoading(true);
-      try {
-        const projectsResponse = await api.post({
-          type: 'dbt-fetch-projects',
-          request: null,
-        });
-        const projects = projectsResponse || [];
+  const initializeData = useCallback(async () => {
+    setModelsLoading(true);
+    try {
+      const projectsResponse = await api.post({
+        type: 'dbt-fetch-projects',
+        request: null,
+      });
+      const projects = projectsResponse || [];
 
-        if (projects.length === 0) {
-          setCurrentProject(null);
-          setModels([]);
-          return;
-        }
-
-        const project = projects[0];
-        setCurrentProject(project);
-
-        if (!project.manifest?.nodes) {
-          setModels([]);
-          return;
-        }
-
-        const modelNames = Object.keys(project.manifest.nodes)
-          .filter(
-            (key) =>
-              key.startsWith('model.') ||
-              key.startsWith('seed.') ||
-              key.startsWith('source.'),
-          )
-          .map((key) => project.manifest.nodes[key]?.name)
-          .filter((name): name is string => Boolean(name));
-
-        setModels(modelNames);
-
-        if (project.manifest.sources) {
-          const sourceNames = Object.keys(project.manifest.sources)
-            .filter((key) => key.startsWith('source.'))
-            .map((key) => {
-              const source = project.manifest.sources[key];
-              return source?.source_name && source?.name
-                ? `${source.source_name}.${source.name}`
-                : null;
-            })
-            .filter((name): name is string => Boolean(name));
-          setSources(sourceNames);
-        }
-      } catch (err) {
-        const errorMessage =
-          err instanceof Error ? err.message : 'Failed to fetch data';
-        setError(errorMessage);
-        setModels([]);
+      if (projects.length === 0) {
         setCurrentProject(null);
-      } finally {
-        setModelsLoading(false);
+        setModels([]);
+        return;
+      }
+
+      const project = projects[0];
+      setCurrentProject(project);
+
+      if (!project.manifest?.nodes) {
+        setModels([]);
+        return;
+      }
+
+      const modelNames = Object.keys(project.manifest.nodes)
+        .filter(
+          (key) =>
+            key.startsWith('model.') ||
+            key.startsWith('seed.') ||
+            key.startsWith('source.'),
+        )
+        .map((key) => project.manifest.nodes[key]?.name)
+        .filter((name): name is string => Boolean(name));
+
+      setModels(modelNames);
+
+      if (project.manifest.sources) {
+        const sourceNames = Object.keys(project.manifest.sources)
+          .filter((key) => key.startsWith('source.'))
+          .map((key) => {
+            const source = project.manifest.sources[key];
+            return source?.source_name && source?.name
+              ? `${source.source_name}.${source.name}`
+              : null;
+          })
+          .filter((name): name is string => Boolean(name));
+        setSources(sourceNames);
+      }
+    } catch (err) {
+      const errorMessage =
+        err instanceof Error ? err.message : 'Failed to fetch data';
+      setError(errorMessage);
+      setModels([]);
+      setCurrentProject(null);
+    } finally {
+      setModelsLoading(false);
+    }
+  }, [api]);
+
+  useEffect(() => {
+    void initializeData();
+  }, [initializeData]);
+
+  useEffect(() => {
+    const handler = (event: MessageEvent) => {
+      if (event.data?.type === 'model-deleted') {
+        void initializeData();
       }
     };
-
-    void initializeData();
-  }, [api]);
+    window.addEventListener('message', handler);
+    return () => window.removeEventListener('message', handler);
+  }, [initializeData]);
 
   useEffect(() => {
     const model = (modelingState.from.model ||

@@ -1047,6 +1047,26 @@ export class Coder {
             this.log.info(
               `Framework model JSON deleted: ${deletedPath} (${modelName}), triggering full sync`,
             );
+
+            // Fix 1: Immediately prune from in-memory manifest and JSON
+            // schema enum so webview model pickers and JSON autocomplete
+            // stop showing the deleted model.
+            for (const project of this.framework.dbt.projects.values()) {
+              await this.framework.dbt.pruneDeletedModels(project.name, [
+                modelName,
+              ]);
+            }
+
+            // Fix 2: Delete generated .sql and .yml files so dbt parse
+            // produces a clean manifest without the orphaned model.
+            const prefix = deletedPath.replace(/\.model\.json$/, '');
+            this.deleteGeneratedFiles(prefix);
+
+            // Fix 3: Refresh sidebar tree views and notify open webview
+            // panels so they re-fetch the (now-pruned) model list.
+            this.updateProjectViews();
+            this.notifyWebviewsModelDeleted(modelName);
+
             this.framework.requestFullSync({
               deletedModels: [modelName],
             });
@@ -1602,6 +1622,39 @@ export class Coder {
         this.framework.dbt.treeItemModelRun,
         this.framework.dbt.treeItemModelCompile,
       ]);
+    }
+  }
+
+  /**
+   * Delete the generated .sql and .yml files for a deleted model.
+   * Uses the file prefix (path without .model.json extension).
+   */
+  private deleteGeneratedFiles(prefix: string): void {
+    const sqlPath = `${prefix}.sql`;
+    const ymlPath = `${prefix}.yml`;
+
+    for (const filePath of [sqlPath, ymlPath]) {
+      fs.unlink(filePath, (err) => {
+        if (err && err.code !== 'ENOENT') {
+          this.log.warn(`Failed to delete generated file ${filePath}: ${err.message}`);
+        } else if (!err) {
+          this.log.info(`Deleted generated file: ${filePath}`);
+        }
+      });
+    }
+  }
+
+  /**
+   * Notify open webview panels that a model was deleted so they can
+   * refresh their model lists. Panels that are not open are skipped.
+   */
+  private notifyWebviewsModelDeleted(modelName: string): void {
+    const message = { type: 'model-deleted', modelName };
+    try {
+      this.framework.webviewPanelModelCreate?.webview.postMessage(message);
+      this.framework.dbt.webviewPanelModelCreate?.webview.postMessage(message);
+    } catch {
+      // Webview may have been disposed; ignore.
     }
   }
 

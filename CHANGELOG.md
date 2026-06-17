@@ -2,6 +2,12 @@
 
 ## 1.6.0
 
+### Model deletion handling
+
+- **Deleted models are immediately removed from model selection dropdowns.** When a `.model.json` file is deleted, the model is pruned from the in-memory manifest right away so the Create Model wizard and Data Modeling canvas no longer offer it as a selectable option. Previously the deleted model stayed visible until a successful `dbt parse` refreshed the manifest, which could block indefinitely when downstream models still referenced it.
+- **Generated `.sql` and `.yml` files are cleaned up on model deletion.** Orphaned generated files are now deleted alongside the `.model.json`, preventing `dbt parse` from rediscovering the model through stale artifacts.
+- **Open webview panels refresh automatically after a model is deleted** so Data Modeling nodes re-fetch the (now-pruned) model list without requiring a manual reload.
+
 ### Agent Skills
 
 - **Migrate legacy ephemeral models into inline CTEs through your AI assistant.** When `dj.codingAgent` is enabled, a new skill at `.agents/skills/dj-migrate-ephemerals-to-ctes/SKILL.md` walks an IDE agent through finding ephemeral `.model.json` files, deciding which ones can safely fold into their downstream consumers, applying the rewrite, and prompting you before any deletion. Ephemerals carrying Lightdash metadata or staging models that read from sources are flagged as unsafe so nothing is silently lost. Lets you say "audit the ephemerals under the sales group and migrate the qualifying ones" to dissolve redundant intermediate layers in one pass.
